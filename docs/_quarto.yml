@@ -1,0 +1,11 @@
+project:
+  type: website
+  output-dir: docs
+
+website:
+  title: "Camfield et al. JoVE 2026"
+  navbar:
+    left:
+      - href: index.qmd
+      - href: analysis.qmd
+        text: Analysis
