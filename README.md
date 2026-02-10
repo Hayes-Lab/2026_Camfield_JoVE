@@ -1,7 +1,5 @@
 # Data Analysis Records for Camfield et al. 2026 JoVE
 
-# My Project
-
 ## Documents
 Text description
 
