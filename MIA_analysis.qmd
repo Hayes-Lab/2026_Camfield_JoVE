@@ -1,0 +1,613 @@
+---
+title: "JoVE MIA Generation Protocol"
+Lab: Dr. Lindsay N. Hayes
+author: Sydney Camfield
+affiliation: Department of Cell Biology, University of Oklahoma 
+date: February 13, 2026
+format:
+  html:
+      embed-resources: true
+editor_options: 
+  chunk_output_type: console
+---
+# Load Packages
+```{r load package, warning = FALSE, message = FALSE}
+knitr::opts_chunk$set(warning = FALSE)
+library(tidyverse)
+library(ggplot2)
+library(cowplot)
+library(dplyr)
+library(tidyr)
+library(ggpubr)
+library(rstatix)
+library(svglite)
+```
+
+# Load Data
+```{r, echo=TRUE, message=FALSE, warning=FALSE, results='hide'}
+data <- read.csv("Combined_data.csv") 
+tnfa <- read.csv("TNFa.csv")
+
+clean <- data |>
+  filter(
+    Trt_Stage == 9.5,
+    Lost_Litter != "",
+    between(X24_loss, -4, 10),
+    Mat_IL6 != "") |>
+  mutate(
+    gain_48   = E12 - E10,
+    plug_gain = E9 - E0.5,
+    change_E9 = E9 - E9,
+    change_E10 = E10 - E9,
+    change_E12 = E12 - E9,
+    Success = ifelse(Lost_Litter == "no", "Litter", "No Litter"),
+    Vendor = case_when(Vendor %in% c("J", "JN") ~ "J", Vendor == "R" ~ "R", TRUE ~ Vendor))
+
+data_long <- clean %>%
+  pivot_longer(
+    cols = c(change_E9, change_E10, change_E12),
+    names_to = "Stage",
+    values_to = "Weight")
+
+data_long <- data_long %>%
+  mutate(Stage = factor(Stage, levels = c("change_E9", "change_E10", "change_E12")))
+```
+
+# Figure 2: Maternal IL-6
+## Figure 2A
+```{r}
+clean |>
+  ggplot(aes(x = factor(Group, levels = c("CON", "MIA")), y = log2(Mat_IL6 + 1), fill = Group)) +
+  geom_boxplot(outlier.shape = NA) +
+  scale_fill_manual(values = c("CON" = "grey", "MIA" = "tomato2")) +
+  geom_jitter(size = 1, width = 0.15) +
+  labs(title = "Maternal IL-6", x = NULL, y = "Log transformed IL-6 (pg/mL)") +
+  theme_cowplot() +
+  geom_hline(yintercept = 10, linetype = "dashed", color = "gray20", linewidth = 0.2)
+```
+
+## Stats 2A
+```{r}
+con <- clean |> filter(Group == "CON") |> mutate(Log2 = log2(Mat_IL6 + 1))
+shapiro.test(con$Log2)
+
+mia <- clean |> filter(Group == "MIA") |> mutate(Log2 = log2(Mat_IL6 + 1))
+shapiro.test(mia$Log2)
+
+clean |> 
+  wilcox_test(Mat_IL6 ~ Group, paired = FALSE)
+
+m_only <- clean |> filter(Group == "MIA")
+
+total <- nrow(m_only)
+below <- sum(m_only$Mat_IL6 < 1000)
+above <- sum(m_only$Mat_IL6 > 1000)
+
+data.frame(
+  group = c("<1000", ">1000"),
+  count = c(below, above),
+  percent = c(below, above) / total * 100)
+```
+
+## Figure 2B
+```{r}
+tnfa %>%
+  mutate(TNFa = pmax(TNFa, 0)) %>%
+  mutate(IL6 = pmax(IL6, 0)) %>%
+ggplot(aes(x = TNFa, y = IL6)) +
+  geom_point(size = 1, position = position_jitterdodge(jitter.width = 0.5, dodge.width = 0.1)) +
+  geom_smooth(method = "lm", color = "grey40", linewidth = 0.7) +
+  labs(title = "Maternal TNF-a vs IL-6", x = "TNF-a (pg/mL)", y = "IL-6 (pg/mL)") +
+  theme_cowplot()
+```
+
+## Stats 2B
+```{r}
+shapiro.test(tnfa$IL6)
+shapiro.test(tnfa$TNFa)
+
+cor.test(tnfa$IL6, tnfa$TNFa, method = "spearman")
+```
+
+
+
+
+
+# Figure 3: Weights
+## Figure 3A
+```{r}
+ggplot(clean |> filter(Cohort != "1"),
+       aes(x = Group, y = plug_gain, fill = Success)) +
+  geom_boxplot(position = position_dodge(0.8), outlier.shape = NA) +
+  geom_jitter(position = position_jitterdodge(jitter.width = 0.15, dodge.width = 0.8), size = 1) +
+  scale_fill_manual(values = c("#00b4d8", "grey")) +
+  scale_y_continuous(limits = c(-1, 6)) +
+  theme_cowplot()
+```
+
+## Stats 3A
+```{r}
+litter <- clean |> filter(Cohort != "1", Success == "Litter")
+no <- clean |> filter(Cohort != "1", Success == "No Litter")
+
+shapiro.test(litter$plug_gain)
+shapiro.test(no$plug_gain)
+
+clean %>%
+  t_test(plug_gain ~ Success)
+
+litter %>%
+  summarise(
+    mean = mean(plug_gain, na.rm = TRUE),
+    se = sd(plug_gain, na.rm = TRUE) / sqrt(n()))
+
+no %>%
+  summarise(
+    mean = mean(plug_gain, na.rm = TRUE),
+    se = sd(plug_gain, na.rm = TRUE) / sqrt(n()))
+```
+
+## Figure 3B
+```{r}
+data_long %>%
+  filter(Cohort != "1", E12 != "", Success == "Litter") %>%
+  ggplot(aes(x = Stage, y = Weight, fill = Group)) + 
+    geom_boxplot(outlier.shape = NA) +
+  geom_jitter(
+  position = position_jitterdodge(jitter.width = 0.1, dodge.width = 0.75),
+  size = 1) +
+  scale_fill_manual(values = c("grey", "tomato2")) +
+  scale_x_discrete(labels = c("change_E9" = "E9", "change_E10" = "E10", "change_E12" = "E12")) + 
+  theme_cowplot()
+
+```
+
+## Stats 3B
+```{r}
+L_CON_change_E10 <- data_long |>
+  filter(Group == "CON", Stage == "change_E10", Success == "Litter")
+shapiro.test(L_CON_change_E10$Weight)
+
+L_CON_change_E12 <- data_long |>
+  filter(Group == "CON", Stage == "change_E12", Success == "Litter")
+
+L_MIA_change_E10 <- data_long |>
+  filter(Group == "MIA", Stage == "change_E10", Success == "Litter")
+
+L_MIA_change_E12 <- data_long |>
+  filter(Group == "MIA", Stage == "change_E12", Success == "Litter")
+shapiro.test(L_MIA_change_E12$Weight)
+
+wilcox.test(L_MIA_change_E10$Weight, L_CON_change_E10$Weight)
+
+t.test(L_MIA_change_E12$Weight, L_CON_change_E12$Weight)
+```
+
+
+
+
+
+## Figure 3C
+```{r}
+data_long %>%
+  filter(Cohort != "1", Group == "CON") %>%
+  ggplot(aes(x = Stage, y = Weight, fill = Success)) +
+    geom_boxplot(outlier.shape = NA) +
+    geom_jitter(width = 0.2, size = 1, alpha = 0.8) +
+  scale_fill_manual(values = c("#00b4d8", "grey")) +
+  scale_x_discrete(labels = c("change_E9" = "E9", "change_E10" = "E10", "change_E12" = "E12")) +
+    facet_wrap(~ Success) +
+  theme_cowplot() 
+```
+
+## Stats 3C
+```{r}
+L_CON_change_E10 <- data_long |>
+  filter(Group == "CON", Stage == "change_E10", Success == "Litter")
+shapiro.test(L_CON_change_E10$Weight)
+
+L_CON_change_E10 <- data_long |>
+  filter(Group == "CON", Stage == "change_E10", Success == "Litter") |> pull(Weight)
+wilcox.test(L_CON_change_E10, mu = 0)
+length(L_CON_change_E10)
+
+
+
+NL_CON_change_E10 <- data_long |>
+  filter(Group == "CON", Stage == "change_E10", Success == "No Litter")
+shapiro.test(NL_CON_change_E10$Weight)
+
+NL_CON_change_E10 <- data_long |>
+  filter(Group == "CON", Stage == "change_E10", Success == "No Litter") |> pull(Weight)
+t.test(NL_CON_change_E10, mu = 0)
+length(NL_CON_change_E10)
+
+
+
+
+L_CON_change_E12 <- data_long |>
+  filter(Group == "CON", Stage == "change_E12", Success == "Litter")
+shapiro.test(L_CON_change_E12$Weight)
+
+L_CON_change_E12 <- data_long |>
+  filter(Group == "CON", Stage == "change_E12", Success == "Litter") |> pull(Weight)
+t.test(L_CON_change_E12, mu = 0)
+length(L_CON_change_E12)
+
+
+
+NL_CON_change_E12 <- data_long |>
+  filter(Group == "CON", Stage == "change_E12", Success == "No Litter")
+shapiro.test(NL_CON_change_E12$Weight)
+
+NL_CON_change_E12 <- data_long |>
+  filter(Group == "CON", Stage == "change_E12", Success == "No Litter") |> pull(Weight)
+t.test(NL_CON_change_E12, mu = 0 )
+length(NL_CON_change_E12)
+
+wilcox.test(NL_CON_change_E10, L_CON_change_E10)
+t.test(NL_CON_change_E12, L_CON_change_E12)
+
+c_only <- data_long |> filter(Cohort != "1", Group == "CON")
+
+total <- nrow(c_only)
+litter <- sum(c_only$Success == "Litter")
+no_litter <- sum(c_only$Success == "No Litter")
+
+data.frame(
+  group = c("Litter", "No"),
+  count = c(litter, no_litter),
+  percent = c(litter, no_litter) / total * 100)
+```
+
+
+## Figure 3D
+```{r}
+data_long %>%
+  filter(Cohort != "1", E12 != "", Group == "MIA") %>%
+  ggplot(aes(x = Stage, y = Weight, fill = Success)) +
+    geom_boxplot(outlier.shape = NA) +
+    geom_jitter(width = 0.2, size = 1, alpha = 0.8) +
+  scale_fill_manual(values = c("#00b4d8", "grey")) +
+  scale_x_discrete(labels = c("change_E9" = "E9", "change_E10" = "E10", "change_E12" = "E12")) + 
+    facet_wrap(~ Success) +
+  theme_cowplot()
+```
+## Stats 3D
+```{r}
+L_MIA_change_E10 <- data_long |>
+  filter(Group == "MIA", Stage == "change_E10", Success == "Litter")
+shapiro.test(L_MIA_change_E10$Weight)
+
+L_MIA_change_E10 <- data_long |>
+  filter(Group == "MIA", Stage == "change_E10", Success == "Litter") |> pull(Weight)
+wilcox.test(L_MIA_change_E10, mu = 0)
+length(L_MIA_change_E10)
+
+
+
+NL_MIA_change_E10 <- data_long |>
+  filter(Group == "MIA", Stage == "change_E10", Success == "No Litter")
+shapiro.test(NL_MIA_change_E10$Weight)
+
+NL_MIA_change_E10 <- data_long |>
+  filter(Group == "MIA", Stage == "change_E10", Success == "No Litter") |> pull(Weight)
+wilcox.test(NL_MIA_change_E10, mu = 0)
+length(NL_MIA_change_E10)
+
+
+
+
+L_MIA_change_E12 <- data_long |>
+  filter(Group == "MIA", Stage == "change_E12", Success == "Litter")
+shapiro.test(L_MIA_change_E12$Weight)
+
+L_MIA_change_E12 <- data_long |>
+  filter(Group == "MIA", Stage == "change_E12", Success == "Litter") |> pull(Weight)
+t.test(L_MIA_change_E12, mu = 0)
+length(L_MIA_change_E12)
+
+
+
+NL_MIA_change_E12 <- data_long |>
+  filter(Group == "MIA", Stage == "change_E12", Success == "No Litter")
+shapiro.test(NL_MIA_change_E12$Weight)
+
+NL_MIA_change_E12 <- data_long |>
+  filter(Group == "MIA", Stage == "change_E12", Success == "No Litter") |> pull(Weight)
+t.test(NL_MIA_change_E12, mu = 0 )
+length(NL_MIA_change_E12)
+
+wilcox.test(NL_MIA_change_E10, L_MIA_change_E10)
+t.test(NL_MIA_change_E12, L_MIA_change_E12)
+
+
+
+data_long |> filter(Group == "MIA", Success == "Litter", Stage == "change_E10") |>
+  summarise(
+    mean = mean(Weight, na.rm = TRUE),
+    se = sd(Weight, na.rm = TRUE) / sqrt(n()))
+
+data_long |> filter(Group == "MIA", Success == "No Litter", Stage == "change_E10") |>
+  summarise(
+    mean = mean(Weight, na.rm = TRUE),
+    se = sd(Weight, na.rm = TRUE) / sqrt(n()))
+
+data_long |> filter(Group == "MIA", Success == "Litter", Stage == "change_E12") |>
+  summarise(
+    mean = mean(Weight, na.rm = TRUE),
+    se = sd(Weight, na.rm = TRUE) / sqrt(n()))
+
+data_long |> filter(Group == "MIA", Success == "No Litter", Stage == "change_E12") |>
+  summarise(
+    mean = mean(Weight, na.rm = TRUE),
+    se = sd(Weight, na.rm = TRUE) / sqrt(n()))
+```
+
+
+
+
+
+
+# Figure 4: Variables affecting MIA
+## Figure 4A
+```{r}
+clean |> 
+  ggplot(aes(x = Group, y = E0.5, fill = Success )) + 
+  geom_boxplot(outlier.shape = NA) + 
+  geom_point(position = position_jitterdodge(dodge.width = 0.75, jitter.width = 0.1)) + 
+  theme_cowplot() + scale_fill_manual(values = c("#00b4d8", "grey")) + 
+  labs(y = "starting weight (g)") + 
+  ylim(15,25)
+```
+## Stats 4A
+```{r}
+a <- clean |> filter(Group == "CON", Success == "Litter")
+shapiro.test(a$E0.5)
+nrow(a)
+
+b <- clean |> filter(Group == "CON", Success == "No Litter")
+shapiro.test(b$E0.5)
+nrow(b)
+
+c <- clean |> filter(Group == "MIA", Success == "Litter")
+shapiro.test(c$E0.5)
+nrow(c)
+
+d <- clean |> filter(Group == "MIA", Success == "No Litter")
+shapiro.test(d$E0.5)
+nrow(d)
+
+clean |>
+  filter(Group == "CON") |>
+  t_test(E0.5 ~ Success)
+
+clean |>
+  filter(Group == "MIA") |>
+  wilcox_test(E0.5 ~ Success)
+
+clean |>
+  filter(Success == "Litter") |>
+  wilcox_test(E0.5 ~ Group)
+
+clean |>
+  filter(Success == "No Litter") |>
+  t_test(E0.5 ~ Group)
+```
+
+
+
+## Figure 4B
+```{r}
+#Vendor
+clean_v <- clean |>
+  mutate(Vendor_bin = case_when(Vendor == "J"  ~ "J", Vendor == "R"  ~ "R", TRUE ~ NA_character_),
+    Success = ifelse(Lost_Litter == "no", "Litter", "No Litter")) |> 
+  filter(!is.na(Vendor_bin)) |> 
+  filter(Cohort != "1") |>
+  filter(PIC != 'none')
+
+plot_v <- clean_v |>
+  group_by(Vendor_bin, Success) |>
+  summarise(n = n(), .groups = "drop") |>
+  group_by(Vendor_bin) |>
+  mutate(percent = n / sum(n) * 100)
+
+plot_v <- plot_v |>
+  mutate(label = paste0(round(percent), "%"))
+
+n_v <- clean_v |>
+  group_by(Vendor_bin) |>
+  summarise(n = n(), .groups = "drop")
+
+plot_v |>
+  group_by(Vendor_bin) |>
+  ggplot(aes(x = Vendor_bin, y = percent, fill = Success)) +
+  geom_bar(stat = "identity", color = "black", size = 0.6) +
+  geom_text(aes(label = label), 
+            position = position_stack(vjust = 0.5), 
+            color = "white", size = 3) +
+  scale_x_discrete(labels = c("J" = "Jackson", "R" = "Charles River")) +
+  geom_text(data = n_v, aes(x = Vendor_bin, y = 105, label = paste0("n=", n)),
+            inherit.aes = FALSE, size = 3) +
+  scale_fill_manual(values = c("Litter" = "#00b4d8", "No Litter" = "grey")) +
+  labs(x = "", y = "Percentage of Litter Success", fill = "") +
+  theme_cowplot()
+
+#poly(I:C)
+clean_p <- clean |>
+  mutate(PIC_bin = case_when(PIC == "lmw"  ~ "lmw", PIC == "sigma"  ~ "sigma", TRUE ~ NA_character_),
+    Success = ifelse(Lost_Litter == "no", "Litter", "No Litter")) |> 
+  filter(!is.na(PIC_bin)) |> 
+  filter(Cohort != "1")
+
+clean_p1 <- clean_p |>
+  group_by(PIC_bin, Success) |>
+  summarise(n = n(), .groups = "drop") |>
+  group_by(PIC_bin) |>
+  mutate(percent = n / sum(n) * 100)
+
+plot_p <- clean_p1 |>
+  mutate(label = paste0(round(percent), "%"))
+
+n_p <- clean_p1 |>
+  group_by(PIC_bin) |>
+  summarise(n = n(), .groups = "drop")
+
+plot_p |>
+  group_by(PIC_bin) |>
+  ggplot(aes(x = PIC_bin, y = percent, fill = Success)) +
+  geom_bar(stat = "identity", color = "black") +
+  geom_text(aes(label = label), 
+            position = position_stack(vjust = 0.5), 
+            color = "white", size = 3) +
+  geom_text(data = plot_p |> group_by(PIC_bin) |> summarise(n = sum(n)), 
+            aes(x = PIC_bin, y = 105, label = paste0("n=", n)),
+            inherit.aes = FALSE, size = 3) +
+  scale_fill_manual(values = c("Litter" = "#00b4d8", "No Litter" = "grey")) +
+  labs(x = "", y = "Percentage of Litter Success", fill = "") +
+  theme_classic() 
+
+```
+
+## Stats 4B
+```{r}
+clean_v |> 
+  filter(Vendor == "J") |>
+  nrow()
+
+clean_v |> 
+  filter(Vendor == "R") |>
+  nrow()
+
+clean_v |>
+  group_by(Success, Vendor_bin) |>
+  tally() |> spread(key = Success, value = n) |>
+  select(Litter, `No Litter`) |>
+  fisher.test()
+
+clean_p |> 
+  filter(PIC_bin == "lmw") |>
+  nrow()
+
+clean_p |> 
+  filter(PIC_bin == "sigma") |>
+  nrow()
+
+clean_p %>%
+  group_by(Success, PIC_bin) |>
+  tally() |> spread(key = Success, value = n) |>
+  select(Litter, `No Litter`) |>
+  fisher.test()
+```
+
+## Figure 4C
+```{r}
+clean |>
+  filter(Group == "MIA") |>
+  ggplot(aes(x = Vendor, y = gain_48, fill = Success)) +
+  geom_boxplot(outlier.shape = NA, position = position_dodge(width = 0.8)) +
+  geom_point(position = position_jitterdodge(jitter.width = 0.2, dodge.width = 0.8),
+    size = 1.5) +
+  scale_fill_manual(values = c("#00b4d8", "grey")) +
+  scale_x_discrete(labels = c("J" = "Jackson", "R" = "Charles River")) +
+  theme_cowplot()
+```
+
+## Stats 4C
+```{r}
+e <- clean |> filter(Group == "MIA", Success == "Litter", Vendor == "J")
+shapiro.test(e$gain_48)
+nrow(e)
+
+f <- clean |> filter(Group == "MIA", Success == "No Litter", Vendor == "J")
+shapiro.test(f$gain_48)
+nrow(f)
+
+g <- clean |> filter(Group == "MIA", Success == "Litter", Vendor == "R")
+shapiro.test(g$gain_48)
+nrow(g)
+
+h <- clean |> filter(Group == "MIA", Success == "No Litter", Vendor == "R")
+shapiro.test(h$gain_48)
+nrow(h)
+
+clean |>
+  filter(Vendor == "J") |>
+  filter(Group == "MIA") |>
+  wilcox_test(gain_48 ~ Success)
+
+clean |>
+  filter(Vendor == "R") |>
+  filter(Group == "MIA") |>
+  t_test(gain_48 ~ Success)
+
+clean |>
+  filter(Success == "Litter") |>
+  filter(Group == "MIA") |>
+  t_test(gain_48 ~ Vendor)
+
+clean |>
+  filter(Success == "No Litter") |>
+  filter(Group == "MIA") |>
+  wilcox_test(gain_48 ~ Vendor)
+```
+
+## Figure 4D
+```{r}
+clean |>
+  filter(Group == "MIA", PIC == "lmw") |>
+  ggplot(aes(x = Vendor, y = log2(Mat_IL6 + 1))) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_jitter(width = 0.2, size = 1.5) +
+  scale_x_discrete(labels = c("J" = "Jackson", "R" = "Charles River")) +
+  theme_cowplot() +
+  geom_hline(yintercept = 10, linetype = "dashed", color = "gray4", linewidth = 0.2) 
+```
+
+## Stats 4D
+```{r}
+c3 <- clean |> filter(Group == "MIA", Vendor == "J", PIC == "lmw") |> mutate(log2_IL6 = log2(Mat_IL6 + 1))
+shapiro.test(c3$log2_IL6)
+nrow(c3)
+
+c4 <- clean |> filter(Group == "MIA", Vendor == "R", PIC == "lmw") |> mutate(log2_IL6 = log2(Mat_IL6 + 1))
+shapiro.test(c4$log2_IL6)
+nrow(c4)
+
+clean |>
+  filter(Group == "MIA", PIC == "lmw") |>
+  wilcox_test(Mat_IL6 ~ Vendor)
+```
+
+## Figure 4E
+```{r}
+clean |>
+  filter(Group == "MIA") |>
+  filter(Vendor == "J") |>
+  ggplot(aes(x = PIC, y = log2(Mat_IL6 + 1))) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_jitter(width = 0.2, size = 1, alpha = 0.8) +
+  theme_cowplot() 
+```
+
+## Stats 4E
+```{r}
+c1 <- clean |> filter(Group == "MIA", Vendor == "J", PIC == "lmw") |> mutate(log2_IL6 = log2(Mat_IL6 + 1))
+shapiro.test(c1$log2_IL6)
+nrow(c1)
+
+c2 <- clean |> filter(Group == "MIA", Vendor == "J", PIC == "sigma") |> mutate(log2_IL6 = log2(Mat_IL6 + 1))
+shapiro.test(c2$log2_IL6)
+nrow(c2)
+
+clean |> 
+  filter(Group == "MIA") |> 
+  filter(Vendor == "J") |>
+wilcox_test(Mat_IL6 ~ PIC)
+```
+
+
+
+
+
